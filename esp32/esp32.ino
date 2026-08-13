@@ -7,13 +7,12 @@
 #include "tensorflow/lite/schema/schema_generated.h"
 
 #include "model_data.cc"
-#include "chatbot_data.h"   // AUTO-GENERATED: vocabulary[], intents[], VOCAB_SIZE,
-                             // INTENT_COUNT, response_table[], response_counts[]
+#include "chatbot_data.h"   // vocabulary[], intents[], VOCAB_SIZE, INTENT_COUNT,
+                             // response_table[], response_counts[]
 
-struct InferenceResult {
-  String intent;
-  float confidence;
-};
+// Doubles the loop() task's stack (default 8 KB). Extra safety margin now
+// that WiFi + WebServer + inference all run in that same task.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 // ============================================================
 // WIFI CONFIG  <-- EDIT THESE TWO LINES ONLY
@@ -31,13 +30,10 @@ tflite::MicroInterpreter* interpreter = nullptr;
 TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
 
-// Tensor Arena — bumped from 120 KB: input/kernel size scales with
-// VOCAB_SIZE, and this vocab is 587 words vs. the original 45.
-constexpr int kTensorArenaSize = 200 * 1024;
+// Measured actual usage was 39,772 bytes (see "Arena used" in Serial
+// output) — 48 KB gives headroom without wasting RAM WiFi needs.
+constexpr int kTensorArenaSize = 48 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
-
-// MAX_LENGTH, VOCAB_SIZE, INTENT_COUNT, vocabulary[], intents[],
-// response_table[], response_counts[] all come from chatbot_data.h now.
 
 // ============================================================
 // WEB PAGE
@@ -171,7 +167,11 @@ String getResponse(int intent, float confidence) {
 // RUN MODEL
 // ============================================================
 String runChatbot(String text, float* outConfidence, int* outIntent) {
-  float sequence[MAX_LENGTH * VOCAB_SIZE];
+  // static: this array is ~30 KB (12 * VOCAB_SIZE floats). On a normal
+  // (non-static) local it would be allocated on the loop task's stack
+  // EVERY call and overflow it (default stack is only 8 KB) -> crash.
+  // static moves it to fixed memory allocated once, not per call.
+  static float sequence[MAX_LENGTH * VOCAB_SIZE];
   encodeSequence(text, sequence);
 
   for (int i = 0; i < MAX_LENGTH * VOCAB_SIZE; i++) {
@@ -237,7 +237,7 @@ void setup() {
   Serial.println("       ESP32-C3 AI CHATBOT");
   Serial.println("================================");
 
-  randomSeed(esp_random());  // seeds response variety; esp_random() is HW-backed on ESP32
+  randomSeed(esp_random());
 
   Serial.println("Loading INT8 1D-CNN model...");
 
@@ -248,7 +248,6 @@ void setup() {
     while (true) delay(1000);
   }
 
-  // Explicitly registering the needed operations
   static tflite::MicroMutableOpResolver<13> resolver;
   resolver.AddGather();
   resolver.AddConv2D();
@@ -286,6 +285,7 @@ void setup() {
   Serial.println(input->bytes / sizeof(float));
   Serial.print("Output elements: ");
   Serial.println(output->bytes / sizeof(float));
+  Serial.printf("Arena used: %u / %u bytes\n", interpreter->arena_used_bytes(), kTensorArenaSize);
   Serial.print("Free heap after AllocateTensors: ");
   Serial.println(ESP.getFreeHeap());
 
@@ -311,9 +311,11 @@ void setup() {
     Serial.println("WiFi connected!");
     Serial.print("Open this in your browser: http://");
     Serial.println(WiFi.localIP());
+    Serial.print("Free heap after WiFi connect: ");
+    Serial.println(ESP.getFreeHeap());
   } else {
     Serial.println();
-    Serial.println("WiFi FAILED to connect.");
+    Serial.println("WiFi FAILED to connect. Serial chat still works below.");
   }
 
   server.on("/", handleRoot);
@@ -322,7 +324,7 @@ void setup() {
   server.begin();
 
   Serial.println();
-  Serial.println("Chatbot ready.");
+  Serial.println("Chatbot ready (Serial + Web).");
 }
 
 // ============================================================
