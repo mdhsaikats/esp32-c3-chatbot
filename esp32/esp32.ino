@@ -7,74 +7,41 @@
 #include "tensorflow/lite/schema/schema_generated.h"
 
 #include "model_data.cc"
+#include "chatbot_data.h"   // AUTO-GENERATED: vocabulary[], intents[], VOCAB_SIZE,
+                             // INTENT_COUNT, response_table[], response_counts[]
 
+struct InferenceResult {
+  String intent;
+  float confidence;
+};
 
 // ============================================================
 // WIFI CONFIG  <-- EDIT THESE TWO LINES ONLY
 // ============================================================
-
-const char* WIFI_SSID     = "YOUR_WIFI_USERNAME";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID     = "europa";
+const char* WIFI_PASSWORD = "Sajib11101992";
 
 WebServer server(80);
-
 
 // ============================================================
 // MODEL
 // ============================================================
-
 const tflite::Model* model = nullptr;
 tflite::MicroInterpreter* interpreter = nullptr;
 TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
 
-constexpr int kTensorArenaSize = 20 * 1024;
+// Tensor Arena — bumped from 120 KB: input/kernel size scales with
+// VOCAB_SIZE, and this vocab is 587 words vs. the original 45.
+constexpr int kTensorArenaSize = 200 * 1024;
 uint8_t tensor_arena[kTensorArenaSize];
 
+// MAX_LENGTH, VOCAB_SIZE, INTENT_COUNT, vocabulary[], intents[],
+// response_table[], response_counts[] all come from chatbot_data.h now.
 
 // ============================================================
-// VOCABULARY
+// WEB PAGE
 // ============================================================
-
-const char* vocabulary[] = {
-  "you", "what", "is", "do", "are", "can", "me", "a", "ai", "esp32",
-  "good", "your", "tell", "need", "hello", "hey", "there", "see", "later", "talk",
-  "to", "who", "name", "an", "help", "c3", "about", "thanks", "hi", "morning",
-  "afternoon", "evening", "bye", "goodbye", "am", "i", "talking", "robot", "abilities", "with",
-  "online", "internet", "wifi", "server", "use", "the", "cloud", "work", "offline", "microcontroller",
-  "does", "mean", "artificial", "intelligence", "thank", "lot", "that", "helpful", "nice", "cool"
-};
-
-constexpr int VOCAB_SIZE = 60;
-
-
-// ============================================================
-// INTENTS
-// ============================================================
-
-const char* intents[] = {
-  "greeting", "goodbye", "identity", "capabilities",
-  "offline", "esp32", "ai", "thanks"
-};
-
-constexpr int INTENT_COUNT = 8;
-
-
-// ============================================================
-// QUANTIZATION
-// ============================================================
-
-constexpr float INPUT_SCALE = 0.003921568859368563f;
-constexpr int INPUT_ZERO_POINT = -128;
-
-constexpr float OUTPUT_SCALE = 0.00390625f;
-constexpr int OUTPUT_ZERO_POINT = -128;
-
-
-// ============================================================
-// WEB PAGE (stored in flash)
-// ============================================================
-
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html>
@@ -127,11 +94,9 @@ function sendMsg() {
 </html>
 )rawliteral";
 
-
 // ============================================================
 // FIND WORD IN VOCABULARY
 // ============================================================
-
 int findWord(const String& word) {
   for (int i = 0; i < VOCAB_SIZE; i++) {
     if (word == vocabulary[i]) return i;
@@ -139,50 +104,42 @@ int findWord(const String& word) {
   return -1;
 }
 
-
 // ============================================================
-// TOKENIZE + CREATE BOW VECTOR
+// TOKENIZE + CREATE ONE-HOT SEQUENCE
 // ============================================================
-
-void createInputVector(const String& text, int8_t* outputVector) {
-  for (int i = 0; i < VOCAB_SIZE; i++) {
-    outputVector[i] = INPUT_ZERO_POINT;
+void encodeSequence(const String& text, float* sequence) {
+  for (int i = 0; i < MAX_LENGTH * VOCAB_SIZE; i++) {
+    sequence[i] = 0.0f;
   }
 
-  String word = "";
+  int wordIndex = 0;
+  String currentWord = "";
 
-  for (int i = 0; i <= text.length(); i++) {
-    char c;
-    if (i < text.length()) c = text[i];
-    else c = ' ';
+  for (int i = 0; i <= text.length() && wordIndex < MAX_LENGTH; i++) {
+    char c = i < text.length() ? toLowerCase(text[i]) : ' ';
 
-    if (c >= 'A' && c <= 'Z') c = c + ('a' - 'A');
-
-    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
-      word += c;
-    } else {
-      if (word.length() > 0) {
-        int index = findWord(word);
-        if (index >= 0) {
-          outputVector[index] = 127;
-        }
-        word = "";
+    if (isAlphaNumeric(c)) {
+      currentWord += c;
+    } else if (currentWord.length() > 0) {
+      int vIndex = findWord(currentWord);
+      if (vIndex >= 0) {
+        sequence[(wordIndex * VOCAB_SIZE) + vIndex] = 1.0f;
       }
+      wordIndex++;
+      currentWord = "";
     }
   }
 }
 
-
 // ============================================================
 // FIND MAX INTENT
 // ============================================================
-
 int findBestIntent(float* confidence) {
   int bestIndex = 0;
   float bestScore = -999.0f;
 
   for (int i = 0; i < INTENT_COUNT; i++) {
-    float score = (static_cast<float>(output->data.int8[i]) - OUTPUT_ZERO_POINT) * OUTPUT_SCALE;
+    float score = output->data.f[i];
     if (score > bestScore) {
       bestScore = score;
       bestIndex = i;
@@ -193,41 +150,32 @@ int findBestIntent(float* confidence) {
   return bestIndex;
 }
 
-
 // ============================================================
 // RESPONSE
 // ============================================================
-
 String getResponse(int intent, float confidence) {
   if (confidence < 0.40f) {
     return "I'm not sure what you mean.";
   }
 
-  switch (intent) {
-    case 0: return "Hello! Nice to meet you.";
-    case 1: return "Goodbye!";
-    case 2: return "I am a tiny offline AI running on an ESP32-C3.";
-    case 3: return "I can understand simple questions and identify your intent.";
-    case 4: return "No. I work completely offline without WiFi or internet.";
-    case 5: return "ESP32-C3 is a small RISC-V microcontroller.";
-    case 6: return "AI means Artificial Intelligence.";
-    case 7: return "You're welcome!";
-    default: return "I don't know.";
+  int count = response_counts[intent];
+  if (count <= 0) {
+    return "I don't know.";
   }
+
+  int pick = random(count);
+  return String(response_table[intent][pick]);
 }
 
-
 // ============================================================
-// RUN MODEL ON A MESSAGE -> RETURNS BOT REPLY
-// (shared by Serial and Web)
+// RUN MODEL
 // ============================================================
-
 String runChatbot(String text, float* outConfidence, int* outIntent) {
-  int8_t inputVector[VOCAB_SIZE];
-  createInputVector(text, inputVector);
+  float sequence[MAX_LENGTH * VOCAB_SIZE];
+  encodeSequence(text, sequence);
 
-  for (int i = 0; i < VOCAB_SIZE; i++) {
-    input->data.int8[i] = inputVector[i];
+  for (int i = 0; i < MAX_LENGTH * VOCAB_SIZE; i++) {
+    input->data.f[i] = sequence[i];
   }
 
   TfLiteStatus status = interpreter->Invoke();
@@ -245,11 +193,9 @@ String runChatbot(String text, float* outConfidence, int* outIntent) {
   return getResponse(intent, confidence);
 }
 
-
 // ============================================================
 // WEB HANDLERS
 // ============================================================
-
 void handleRoot() {
   server.send_P(200, "text/html", INDEX_HTML);
 }
@@ -279,11 +225,9 @@ void handleNotFound() {
   server.send(404, "text/plain", "Not found");
 }
 
-
 // ============================================================
 // SETUP
 // ============================================================
-
 void setup() {
   Serial.begin(115200);
   delay(1500);
@@ -293,7 +237,9 @@ void setup() {
   Serial.println("       ESP32-C3 AI CHATBOT");
   Serial.println("================================");
 
-  Serial.println("Loading INT8 model...");
+  randomSeed(esp_random());  // seeds response variety; esp_random() is HW-backed on ESP32
+
+  Serial.println("Loading INT8 1D-CNN model...");
 
   model = tflite::GetModel(model_data);
 
@@ -302,13 +248,20 @@ void setup() {
     while (true) delay(1000);
   }
 
-  static tflite::MicroMutableOpResolver<8> resolver;
+  // Explicitly registering the needed operations
+  static tflite::MicroMutableOpResolver<13> resolver;
+  resolver.AddGather();
+  resolver.AddConv2D();
+  resolver.AddMean();
   resolver.AddFullyConnected();
   resolver.AddSoftmax();
-  resolver.AddReshape();
   resolver.AddQuantize();
   resolver.AddDequantize();
-  resolver.AddGather();
+  resolver.AddReshape();
+  resolver.AddLess();
+  resolver.AddAdd();
+  resolver.AddSelectV2();
+  resolver.AddExpandDims();
 
   static tflite::MicroInterpreter static_interpreter(
     model, resolver, tensor_arena, kTensorArenaSize
@@ -320,6 +273,8 @@ void setup() {
 
   if (status != kTfLiteOk) {
     Serial.println("ERROR: AllocateTensors failed!");
+    Serial.println("Try increasing kTensorArenaSize, or check available heap below.");
+    Serial.printf("Free heap: %d bytes\n", ESP.getFreeHeap());
     while (true) delay(1000);
   }
 
@@ -328,14 +283,15 @@ void setup() {
 
   Serial.println("Model loaded successfully!");
   Serial.print("Input elements: ");
-  Serial.println(input->bytes);
+  Serial.println(input->bytes / sizeof(float));
   Serial.print("Output elements: ");
-  Serial.println(output->bytes);
+  Serial.println(output->bytes / sizeof(float));
+  Serial.print("Free heap after AllocateTensors: ");
+  Serial.println(ESP.getFreeHeap());
 
   // ----------------------------------------------------------
   // Connect to WiFi
   // ----------------------------------------------------------
-
   Serial.println();
   Serial.print("Connecting to WiFi: ");
   Serial.println(WIFI_SSID);
@@ -357,13 +313,8 @@ void setup() {
     Serial.println(WiFi.localIP());
   } else {
     Serial.println();
-    Serial.println("WiFi FAILED to connect. Check SSID/password.");
-    Serial.println("Chat will still work over Serial.");
+    Serial.println("WiFi FAILED to connect.");
   }
-
-  // ----------------------------------------------------------
-  // Start web server
-  // ----------------------------------------------------------
 
   server.on("/", handleRoot);
   server.on("/chat", handleChat);
@@ -372,15 +323,11 @@ void setup() {
 
   Serial.println();
   Serial.println("Chatbot ready.");
-  Serial.println("Type a message here, or open the web page:");
-  Serial.println();
 }
-
 
 // ============================================================
 // LOOP
 // ============================================================
-
 void loop() {
   server.handleClient();
 
@@ -389,14 +336,6 @@ void loop() {
     text.trim();
 
     if (text.length() == 0) return;
-
-    if (text.equalsIgnoreCase("exit")) {
-      Serial.println("Chatbot stopped.");
-      while (true) {
-        server.handleClient();
-        delay(10);
-      }
-    }
 
     unsigned long startTime = micros();
 
@@ -409,20 +348,15 @@ void loop() {
     Serial.println();
     Serial.print("You: ");
     Serial.println(text);
-
     Serial.print("Intent: ");
     Serial.println(intents[intent]);
-
     Serial.print("Confidence: ");
     Serial.println(confidence, 3);
-
     Serial.print("Inference: ");
     Serial.print(inferenceTime);
     Serial.println(" us");
-
     Serial.print("Bot: ");
     Serial.println(reply);
-
     Serial.println();
   }
 }

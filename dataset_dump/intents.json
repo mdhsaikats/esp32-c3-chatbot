@@ -1,0 +1,131 @@
+{
+  "intents": [
+    {
+      "name": "greeting",
+      "examples": [
+        "hello",
+        "hi",
+        "hey",
+        "hey there",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "hello there"
+      ],
+      "responses": [
+        "hello",
+        "hi",
+        "hey",
+        "hello there"
+      ]
+    },
+    {
+      "name": "goodbye",
+      "examples": [
+        "bye",
+        "goodbye",
+        "see you",
+        "see you later",
+        "talk to you later"
+      ],
+      "responses": [
+        "goodbye",
+        "see you later",
+        "bye"
+      ]
+    },
+    {
+      "name": "identity",
+      "examples": [
+        "who are you",
+        "what are you",
+        "what is your name",
+        "tell me your name",
+        "who am i talking to",
+        "are you a robot",
+        "are you an ai"
+      ],
+      "responses": [
+        "i am c3 bot",
+        "my name is c3 bot",
+        "i am a tiny offline ai"
+      ]
+    },
+    {
+      "name": "capabilities",
+      "examples": [
+        "what can you do",
+        "what do you do",
+        "can you talk",
+        "can you help me",
+        "what are your abilities",
+        "what can you help with"
+      ],
+      "responses": [
+        "i can talk with you offline",
+        "i can answer simple questions",
+        "i can run completely offline"
+      ]
+    },
+    {
+      "name": "offline",
+      "examples": [
+        "are you online",
+        "do you need internet",
+        "do you need wifi",
+        "do you need a server",
+        "do you use the cloud",
+        "can you work offline"
+      ],
+      "responses": [
+        "no i work completely offline",
+        "i do not need internet",
+        "i run locally"
+      ]
+    },
+    {
+      "name": "esp32",
+      "examples": [
+        "what is esp32",
+        "what is esp32 c3",
+        "tell me about esp32",
+        "what is an esp32 c3",
+        "what is a microcontroller"
+      ],
+      "responses": [
+        "esp32 c3 is a small risc v microcontroller",
+        "esp32 is a family of microcontrollers",
+        "a microcontroller is a small computer for embedded systems"
+      ]
+    },
+    {
+      "name": "ai",
+      "examples": [
+        "what is ai",
+        "what does ai mean",
+        "what is artificial intelligence",
+        "tell me about ai"
+      ],
+      "responses": [
+        "ai means artificial intelligence",
+        "ai is the field of building systems that can learn or make decisions"
+      ]
+    },
+    {
+      "name": "thanks",
+      "examples": [
+        "thanks",
+        "thank you",
+        "thanks a lot",
+        "that is helpful",
+        "nice",
+        "cool"
+      ],
+      "responses": [
+        "you are welcome",
+        "glad i could help",
+        "no problem"
+      ]
+    }
+  ]
+}
