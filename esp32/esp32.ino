@@ -13,8 +13,8 @@
 // WIFI CONFIG  <-- EDIT THESE TWO LINES ONLY
 // ============================================================
 
-const char* WIFI_SSID     = "europa";
-const char* WIFI_PASSWORD = "Sajib11101992";
+const char* WIFI_SSID     = "YOUR_WIFI_USERNAME";
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
 WebServer server(80);
 
